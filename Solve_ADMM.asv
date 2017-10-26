@@ -1,0 +1,67 @@
+function [w,obj] = Solve_ADMM(X,S,lambda,C,options)
+%% Initialization
+staterand=rand('seed');
+staterandn=randn('seed');
+[num dim]= size(X);
+one = ones(num,1);
+mu=options.mu;
+if size(lambda,1)~= dim
+    lambda=lambda(1)*ones(dim,1);
+end
+% Parameter Initialization
+z=randn(num,1)*0.1; % lagrangian multpliers
+w=randn(dim,1)*1;         % primal variables
+% initialize a and compute objective value
+S = C*S;
+a=1-X*w;
+aplus=(a>0).*a;
+delta = 0.2; % empiral setti
+penal= delta*sum(aplus); % aplus takes into account the hinge function 
+obj(1) = sum(abs(lambda.*w)) + w'*S*w + penal;
+fprintf('Iteration = %d, l1(w) = %d, wSw = %d, penal = %d, obj = %d.\n',1,sum(abs(lambda.*w)), ...
+    w'*S*w,delta*penal,obj(1));
+
+XtX = X'*X+2*S/mu;
+%% ADMM Iterations
+for iter = 1:options.nbitermax
+   
+    % Update w
+    a1 = one - a - z;
+    w = LASSO_w(w, X'*a1 , XtX+2*S/mu, XtX,lambda, mu);
+    
+    % Update a
+    v= one - z - X*w;
+    aplus=(a>0).*a;
+    aminus=(a<0).*abs(a);
+    vauxp=[];
+    for k = 1:500
+        aminusold=aminus;
+        aminus=(-v+aplus).*( (-v+aplus)>0);
+        b=aminus+v;
+        aplusold2=aplus;
+        [aplus,~] = nnLeastR(eye(length(aplus)),b,delta);
+        if max(abs(aplusold2-aplus))<max(abs(aplus))*1e-4 && max(abs(aminusold-aminus))<max(abs(aminus))*1e-4
+            break
+        end
+    end
+    a = aplus-aminus;
+    penal= delta*sum(aplus); % aplus takes into account  the inner hinge
+    
+    obj(iter+1) = sum(lambda.*abs(w)) + penal + w'*S*w;
+    if abs(obj(iter+1)-obj(iter))<(options.stopobjratio*abs(obj(iter+1)))
+        break
+    end;
+     fprintf('Iteration = %d, l1(w) = %d, wSw = %d, penal = %d, obj = %d.\n',iter+1,sum(abs(lambda.*w)), ...
+    w'*S*w,penal,obj(iter+1));
+
+    % update lagrangian multiplier z
+    z= z + (X*w - one + a);
+    if sum(abs(z))>1e10 || sum(abs(a))>1e10
+        break % divergence of the algorithm
+    end
+    
+end
+
+staterand=rand('seed');
+staterandn=randn('seed');
+
